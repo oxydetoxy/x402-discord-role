@@ -1,0 +1,330 @@
+import type { Request, Response } from "express";
+import express from "express";
+import { exact } from "x402/schemes";
+import {
+  findMatchingPaymentRequirements,
+  processPriceToAtomicAmount,
+} from "x402/shared";
+import {
+  type Network,
+  type PaymentPayload,
+  type Price,
+  type Resource,
+  settleResponseHeader,
+} from "x402/types";
+import { useFacilitator } from "x402/verify";
+import { botClient } from "../constants/constants";
+import { prisma } from "../prisma/prisma";
+import { getBalance } from "../utils/user";
+import type { Accepts } from "../types";
+
+const facilitatorUrl = process.env.FACILITATOR_URL as Resource;
+const { verify, settle } = useFacilitator({ url: facilitatorUrl });
+const x402Version = 1;
+
+/**
+ * Creates payment requirements for a given price and network
+ *
+ * @param price - The price to be paid for the resource
+ * @param network - The blockchain network to use for payment
+ * @param resource - The resource being accessed
+ * @param description - Optional description of the payment
+ * @returns An array of payment requirements
+ */
+function createExactPaymentRequirements(
+  price: Price,
+  network: Network,
+  resource: Resource,
+  description = "Get access to the channel",
+  payTo: `0x${string}`
+): Accepts {
+  const atomicAmountForAsset = processPriceToAtomicAmount(price, network);
+  if ("error" in atomicAmountForAsset) {
+    console.error(atomicAmountForAsset.error);
+    throw new Error(atomicAmountForAsset.error);
+  }
+  const { maxAmountRequired, asset } = atomicAmountForAsset;
+  return {
+    scheme: "exact",
+    network: network as "base",
+    maxAmountRequired,
+    resource,
+    description,
+    mimeType: "",
+    payTo: payTo,
+    maxTimeoutSeconds: 60,
+    asset: asset.address,
+    outputSchema: {
+      input: {
+        type: "http",
+        method: "GET",
+      },
+      output: {
+        success: {
+          type: "boolean",
+          description: "Whether the role was successfully assigned",
+        },
+      },
+    },
+    extra: {
+      name: (
+        asset as {
+          address: `0x${string}`;
+          decimals: number;
+          eip712: {
+            name: string;
+            version: string;
+          };
+        }
+      ).eip712.name,
+      version: (
+        asset as {
+          address: `0x${string}`;
+          decimals: number;
+          eip712: {
+            name: string;
+            version: string;
+          };
+        }
+      ).eip712.version,
+    },
+  };
+}
+
+/**
+ * Verifies a payment and handles the response
+ *
+ * @param req - The Express request object
+ * @param res - The Express response object
+ * @param paymentRequirements - The payment requirements to verify against
+ * @returns A promise that resolves to true if payment is valid, false otherwise
+ */
+async function verifyPayment(
+  req: express.Request,
+  res: express.Response,
+  paymentRequirements: Accepts[]
+): Promise<boolean> {
+  const payment = req.header("X-PAYMENT");
+  if (!payment) {
+    console.error("X-PAYMENT header is required");
+    res.status(402).json({
+      x402Version,
+      error: "X-PAYMENT header is required",
+      accepts: paymentRequirements,
+    });
+    return false;
+  }
+
+  let decodedPayment: PaymentPayload;
+  try {
+    decodedPayment = exact.evm.decodePayment(payment);
+    decodedPayment.x402Version = x402Version;
+  } catch (error) {
+    console.error(error);
+    res.status(402).json({
+      x402Version,
+      error: error || "Invalid or malformed payment header",
+      accepts: paymentRequirements,
+    });
+    return false;
+  }
+
+  try {
+    const selectedPaymentRequirement =
+      findMatchingPaymentRequirements(paymentRequirements, decodedPayment) ||
+      paymentRequirements[0];
+    const response = await verify(decodedPayment, selectedPaymentRequirement!);
+
+    if (!response.isValid) {
+      console.error(response.invalidReason);
+      res.status(402).json({
+        x402Version,
+        error: response.invalidReason,
+        accepts: paymentRequirements,
+        payer: response.payer,
+      });
+      return false;
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(402).json({
+      x402Version,
+      error,
+      accepts: paymentRequirements,
+    });
+    return false;
+  }
+
+  return true;
+}
+
+export const getAccess = async (req: Request, res: Response) => {
+  try {
+    const { discordId, networkId, serverId, channelId } = req.params;
+    if (!discordId || !networkId || !serverId || !channelId) {
+      return res.status(400).json({
+        success: false,
+        error: "Discord ID, network ID, server ID and channel ID are required",
+      });
+    }
+
+    const token = process.env.DISCORD_TOKEN;
+    if (!token) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Discord token is required" });
+    }
+
+    if (!botClient.isReady()) {
+      await botClient.login(token);
+    }
+
+    const server = await prisma.server.findUnique({
+      where: { serverId },
+      include: {
+        channels: {
+          where: {
+            channelId,
+          },
+        },
+      },
+    });
+    if (!server || server.channels.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Server not found" });
+    }
+
+    const network = await prisma.network.findUnique({
+      where: { id: networkId },
+    });
+    if (!network) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Network not found" });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { discordId },
+      include: {
+        networkUsers: {
+          where: { networkId },
+        },
+      },
+    });
+    if (!user || user.networkUsers.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Insufficient Balance" });
+    }
+
+    const balance = await getBalance(
+      network,
+      user.networkUsers[0]?.publicKey ?? ""
+    );
+
+    if (balance < (server.channels[0]?.costInUsdc ?? 0)) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Insufficient Balance" });
+    }
+
+    const userId = user.discordId;
+    const roleId = server.channels[0]?.roleId;
+
+    const member = await botClient.guilds.cache
+      .get(serverId)
+      ?.members.fetch(userId);
+
+    if (!member) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Member not found" });
+    }
+
+    const role = await botClient.guilds.cache
+      .get(serverId)
+      ?.roles.fetch(roleId!);
+    if (!role) {
+      return res.status(400).json({ success: false, error: "Role not found" });
+    }
+
+    if (network.name === "solana") {
+      return res.status(200).json({ success: true, access: true });
+    } else {
+      const resource =
+        `${req.protocol}://${req.headers.host}${req.originalUrl}` as Resource;
+      const priceInUsdc = Number(server.channels[0]?.costInUsdc) / 1000000;
+      console.log(`Price in USDC: ${priceInUsdc}`);
+      const paymentRequirements = [
+        createExactPaymentRequirements(
+          priceInUsdc.toString(),
+          network.name as Network,
+          resource,
+          `Get access to role`,
+          server.receiverEthereumAddress as `0x${string}`
+        ),
+      ];
+      res.setHeader("content-type", "application/json");
+
+      try {
+        const isValid = await verifyPayment(req, res, paymentRequirements);
+        if (!isValid) {
+          console.error("Payment verification failed");
+          res.status(402).json({
+            x402Version,
+            error: "Payment verification failed",
+            accepts: paymentRequirements,
+          });
+          return;
+        }
+
+        const settleResponse = await settle(
+          exact.evm.decodePayment(req.header("X-PAYMENT")!),
+          paymentRequirements[0]!
+        );
+
+        if (!settleResponse.success) {
+          console.log("Failed to settle payment");
+          res.status(402).json({
+            x402Version,
+            error: settleResponse.errorReason || "Failed to settle payment",
+            accepts: paymentRequirements,
+            payer: settleResponse.payer,
+          });
+          return;
+        }
+        const responseHeader = settleResponseHeader(settleResponse);
+        res.setHeader("X-PAYMENT-RESPONSE", responseHeader);
+        res.setHeader("x-payment-response", responseHeader);
+
+        await member.roles.add(role);
+
+        await prisma.roleAssigned.create({
+          data: {
+            userId,
+            serverId,
+            roleId: roleId!,
+            expiryTime: new Date(
+              Date.now() + server.channels[0]?.roleApplicableTime! * 1000
+            ),
+          },
+        });
+
+        res.status(200).json({ success: true });
+        return;
+      } catch (error) {
+        console.error(error);
+        res.status(402).json({
+          x402Version,
+          error,
+          accepts: paymentRequirements,
+        });
+      }
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+    return;
+  }
+};
