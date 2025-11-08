@@ -86,4 +86,6 @@ model Invoice {
   roleId             String
   roleApplicableTime Int
   token              String @unique
+
+  @@unique([userId, serverId, roleId])
 }

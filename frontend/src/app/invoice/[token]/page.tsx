@@ -1,6 +1,7 @@
 import React from "react";
 import { prisma } from "../../../../prisma/prisma";
 import { notFound } from "next/navigation";
+import HomeClient from "./components/home-client";
 
 export default async function Page({
   params,
@@ -15,5 +16,27 @@ export default async function Page({
   if (!invoice) {
     return notFound();
   }
-  return <div>Home</div>;
+
+  const [user, server] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: invoice?.userId },
+    }),
+    prisma.server.findUnique({
+      where: { serverId: invoice?.serverId },
+      include: {
+        channels: {
+          where: {
+            roleId: invoice?.roleId,
+          },
+        },
+      },
+    }),
+  ]);
+
+  if (!user || !server) {
+    console.error("User or server not found");
+    return notFound();
+  }
+
+  return <HomeClient invoice={invoice} user={user} server={server} />;
 }
