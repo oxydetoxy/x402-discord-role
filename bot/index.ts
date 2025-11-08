@@ -24,7 +24,7 @@ interface ChannelConfig {
   defaultChannelId: string;
   costInUsdc: string;
   roleId: string;
-  roleApplicableTime: number;
+  roleApplicableTime: number[];
   server?: {
     serverId: string;
     receiverSolanaAddress: string;
@@ -159,6 +159,329 @@ async function getRoleName(
   }
 }
 
+// Handle duration selection and show payment options
+async function handleDurationSelected(
+  interaction: any,
+  channelId: string,
+  roleId: string,
+  roleName: string,
+  channelConfig: ChannelConfig,
+  selectedDuration: number,
+  userId: string,
+  username: string
+) {
+  const durationInDays = Math.floor(selectedDuration / (24 * 60 * 60));
+  const roleCost = Number(channelConfig.costInUsdc);
+
+  // Create payment method buttons
+  const discordWalletButton = new ButtonBuilder()
+    .setCustomId(
+      `pay_with_discord_wallet_${channelId}_${roleId}_${selectedDuration}`
+    )
+    .setLabel("Pay with Discord Wallet")
+    .setEmoji("💵")
+    .setStyle(ButtonStyle.Success);
+
+  const invoiceButton = new ButtonBuilder()
+    .setCustomId(`pay_with_invoice_${channelId}_${roleId}_${selectedDuration}`)
+    .setLabel("Pay with Invoice")
+    .setEmoji("💰")
+    .setStyle(ButtonStyle.Primary);
+
+  const buttonsRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    discordWalletButton,
+    invoiceButton
+  );
+
+  const embed = new EmbedBuilder()
+    .setTitle("💳 Select Payment Method")
+    .setDescription(
+      `You are purchasing **${roleName}** role for **${durationInDays} days**.\n\n` +
+        `💰 **Cost:** ${roleCost / 1000000} USDC\n\n` +
+        `Please select your preferred payment method:`
+    )
+    .setColor(0x5865f2)
+    .addFields(
+      {
+        name: "💵 Discord Wallet",
+        value: "Pay using your Discord wallet balance (instant)",
+        inline: false,
+      },
+      {
+        name: "💰 Invoice",
+        value: "Generate an invoice to pay externally",
+        inline: false,
+      }
+    )
+    .setTimestamp();
+
+  await interaction.reply({
+    embeds: [embed],
+    components: [buttonsRow],
+    ephemeral: true,
+  });
+
+  console.log(
+    `⏱️ ${username} (${userId}) selected ${durationInDays} days for ${roleName} role`
+  );
+}
+
+// Handle Discord wallet payment
+async function handleDiscordWalletPayment(
+  interaction: any,
+  channelId: string,
+  roleId: string,
+  selectedDuration: number,
+  userId: string,
+  username: string,
+  userInfo: { networkUsers: NetworkUser[] } | null,
+  serverConfig: ServerConfig | null
+) {
+  if (!userInfo || !serverConfig) {
+    await interaction.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("❌ Error")
+          .setDescription("Failed to retrieve user or server information.")
+          .setColor(0xed4245),
+      ],
+      ephemeral: true,
+    });
+    return;
+  }
+
+  // Fetch channel config
+  const channelConfig = await fetchChannelConfig(channelId);
+  if (!channelConfig) {
+    await interaction.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("❌ Error")
+          .setDescription("Channel configuration not found.")
+          .setColor(0xed4245),
+      ],
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const roleCost = Number(channelConfig.costInUsdc);
+  const baseNetworkUser = userInfo.networkUsers.find(
+    (user) => user.networkName === "base-sepolia"
+  );
+
+  if (!baseNetworkUser) {
+    await interaction.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("❌ Error")
+          .setDescription("No network user found for base-sepolia.")
+          .setColor(0xed4245),
+      ],
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const userBalance = baseNetworkUser?.balance;
+
+  if (userBalance && Number(userBalance) < roleCost) {
+    await interaction.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("❌ Insufficient Balance")
+          .setDescription(
+            `You do not have enough balance to purchase this role.\n\n` +
+              `**Your Balance:** ${Number(userBalance) / 1000000} USDC\n` +
+              `**Required:** ${roleCost / 1000000} USDC`
+          )
+          .setColor(0xed4245),
+      ],
+      ephemeral: true,
+    });
+    return;
+  }
+
+  // Defer the reply before making payment request
+  await interaction.deferReply({ ephemeral: true });
+
+  const signer = await createSigner(
+    "base-sepolia",
+    baseNetworkUser?.privateKey ?? ""
+  );
+
+  try {
+    const api = withPaymentInterceptor(
+      axios.create({
+        baseURL: BACKEND_URL,
+      }),
+      signer
+    );
+    const response = await api.post(
+      `/api/user/access`,
+      {
+        discordId: userId,
+        networkId: baseNetworkUser?.networkId,
+        serverId: serverConfig.serverId,
+        channelId: channelId,
+        roleApplicableTime: selectedDuration,
+      },
+      {
+        headers: {
+          AUTHORIZATION: `Bearer ${process.env.BACKEND_API_KEY}`,
+        },
+      }
+    );
+
+    if (!response.data.success) {
+      await interaction.editReply({
+        embeds: [
+          new EmbedBuilder()
+            .setTitle("❌ Payment Failed")
+            .setDescription("Failed to process your payment. Please try again.")
+            .setColor(0xed4245),
+        ],
+      });
+      return;
+    }
+
+    const roleName = await getRoleName(interaction.guildId!, roleId);
+    const durationInDays = Math.floor(selectedDuration / (24 * 60 * 60));
+
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("✅ Payment Successful!")
+          .setDescription(
+            `Congratulations! You have successfully purchased the **${roleName}** role!\n\n` +
+              `**Duration:** ${durationInDays} days\n` +
+              `**Cost:** ${roleCost / 1000000} USDC\n` +
+              `**Payment Method:** Discord Wallet`
+          )
+          .setColor(0x57f287)
+          .setTimestamp(),
+      ],
+    });
+
+    console.log(
+      `💵 ${username} (${userId}) paid with Discord Wallet for ${roleName} role (${durationInDays} days)`
+    );
+  } catch (error) {
+    console.error(
+      error instanceof AxiosError
+        ? (error as AxiosError).response?.data
+        : "Unknown error"
+    );
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("❌ Payment Error")
+          .setDescription("An error occurred while processing your payment.")
+          .setColor(0xed4245),
+      ],
+    });
+  }
+}
+
+// Handle invoice payment
+async function handleInvoicePayment(
+  interaction: any,
+  channelId: string,
+  roleId: string,
+  selectedDuration: number,
+  userId: string,
+  serverConfig: ServerConfig | null
+) {
+  if (!serverConfig) {
+    await interaction.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("❌ Error")
+          .setDescription("Server configuration not found.")
+          .setColor(0xed4245),
+      ],
+      ephemeral: true,
+    });
+    return;
+  }
+
+  // Fetch channel config
+  const channelConfig = await fetchChannelConfig(channelId);
+  if (!channelConfig) {
+    await interaction.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("❌ Error")
+          .setDescription("Channel configuration not found.")
+          .setColor(0xed4245),
+      ],
+      ephemeral: true,
+    });
+    return;
+  }
+
+  try {
+    const response = await axios.post(
+      `${BACKEND_URL}/api/user/invoice`,
+      {
+        discordId: userId,
+        serverId: serverConfig.serverId,
+        channelId: channelId,
+        roleApplicableTime: selectedDuration,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.BACKEND_API_KEY}`,
+        },
+      }
+    );
+
+    if (!response.data.success) {
+      await interaction.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setTitle("❌ Error")
+            .setDescription("Failed to create invoice.")
+            .setColor(0xed4245),
+        ],
+        ephemeral: true,
+      });
+      return;
+    }
+    const token = response.data.token;
+
+    const roleName = await getRoleName(interaction.guildId!, roleId);
+    const durationInDays = Math.floor(selectedDuration / (24 * 60 * 60));
+
+    // Create invoice embed with payment addresses
+    const invoiceEmbed = new EmbedBuilder()
+      .setTitle("💰 Payment Invoice for ${roleName} role")
+      .setDescription(
+        `**Role:** ${roleName}\n` +
+          `**Duration:** ${durationInDays} days\n` +
+          `**Please visit the following link to pay:** ${BACKEND_URL}/invoice/${token}`
+      )
+      .setColor(0xfee75c)
+      .setTimestamp();
+
+    await interaction.reply({
+      embeds: [invoiceEmbed],
+      ephemeral: true,
+    });
+  } catch (error) {
+    console.error(error);
+    await interaction.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("❌ Error")
+          .setDescription("Failed to create invoice.")
+          .setColor(0xed4245),
+      ],
+    });
+    return;
+  }
+}
+
 // Create interactive panel with buttons and dropdown showing ALL available roles
 async function createInteractivePanel(
   channel: TextChannel,
@@ -200,14 +523,33 @@ async function createInteractivePanel(
     }
 
     const costInUsdc = Number(channelConfig.costInUsdc);
-    const durationInDays = Math.floor(
-      channelConfig.roleApplicableTime / (24 * 60 * 60)
-    );
+
+    // Handle roleApplicableTime as array or single number
+    let durationDisplay = "";
+    const timeOptions = channelConfig.roleApplicableTime;
+
+    if (Array.isArray(timeOptions)) {
+      if (timeOptions.length === 1) {
+        const durationInDays = Math.floor(timeOptions[0] / (24 * 60 * 60));
+        durationDisplay = `${durationInDays} days`;
+      } else {
+        // Multiple duration options
+        const durations = timeOptions.map((time) =>
+          Math.floor(time / (24 * 60 * 60))
+        );
+        durationDisplay = `${Math.min(...durations)}-${Math.max(
+          ...durations
+        )} days (multiple options)`;
+      }
+    } else {
+      const durationInDays = Math.floor(timeOptions / (24 * 60 * 60));
+      durationDisplay = `${durationInDays} days`;
+    }
 
     // Add to dropdown options
     roleOptions.push({
       label: roleName,
-      description: `${costInUsdc / 1000000} USDC for ${durationInDays} days`,
+      description: `${costInUsdc / 1000000} USDC for ${durationDisplay}`,
       value: `${channelConfig.channelId}_${channelConfig.roleId}`,
       emoji: "🎭",
     });
@@ -215,7 +557,7 @@ async function createInteractivePanel(
     // Add to embed description
     embedDescription += `🎭 **${roleName}**\n`;
     embedDescription += `   💰 Cost: ${costInUsdc / 1000000} USDC\n`;
-    embedDescription += `   ⏱️ Duration: ${durationInDays} days\n\n`;
+    embedDescription += `   ⏱️ Duration: ${durationDisplay}\n\n`;
   }
 
   if (roleOptions.length === 0) {
@@ -595,23 +937,105 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      const roleCost = Number(channelConfig.costInUsdc);
-      const baseNetworkUser = userInfo.networkUsers.find(
-        (user) => user.networkName === "base-sepolia"
-      );
+      // Check if there are multiple time options
+      const timeOptions = channelConfig.roleApplicableTime;
 
-      const userBalance = baseNetworkUser?.balance;
+      if (typeof timeOptions === "number") {
+        // Single time option - convert to array for consistent handling
+        await handleDurationSelected(
+          interaction,
+          channelId,
+          roleId,
+          roleName,
+          channelConfig,
+          timeOptions,
+          userId,
+          username
+        );
+      } else if (Array.isArray(timeOptions) && timeOptions.length > 1) {
+        // Multiple time options - show selection menu
+        const durationOptions = timeOptions.map((time) => {
+          const days = Math.floor(time / (24 * 60 * 60));
+          return {
+            label: `${days} Days`,
+            description: `Get role for ${days} days`,
+            value: `duration_${channelId}_${roleId}_${time}`,
+            emoji: "⏱️",
+          };
+        });
 
-      if (userBalance && Number(userBalance) < roleCost) {
+        const durationSelect = new StringSelectMenuBuilder()
+          .setCustomId(`duration_select_${channelId}_${roleId}`)
+          .setPlaceholder("📅 Select duration")
+          .addOptions(durationOptions);
+
+        const selectRow =
+          new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+            durationSelect
+          );
+
         await interaction.reply({
           embeds: [
             new EmbedBuilder()
-              .setTitle("❌ Insufficient Balance")
+              .setTitle("⏱️ Select Duration")
               .setDescription(
-                "You do not have enough balance to purchase this role. Your balance is " +
-                  Number(userBalance) / 1000000 +
-                  " USDC"
+                `How many days do you want to purchase the **${roleName}** role for?`
               )
+              .setColor(0x5865f2),
+          ],
+          components: [selectRow],
+          ephemeral: true,
+        });
+      } else if (Array.isArray(timeOptions) && timeOptions.length === 1) {
+        // Single time option in array
+        const firstTime = timeOptions[0];
+        if (firstTime !== undefined) {
+          await handleDurationSelected(
+            interaction,
+            channelId,
+            roleId,
+            roleName,
+            channelConfig,
+            firstTime,
+            userId,
+            username
+          );
+        } else {
+          await interaction.reply({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle("❌ Error")
+                .setDescription("Invalid time option.")
+                .setColor(0xed4245),
+            ],
+            ephemeral: true,
+          });
+        }
+      } else {
+        await interaction.reply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("❌ Error")
+              .setDescription("No duration options available for this role.")
+              .setColor(0xed4245),
+          ],
+          ephemeral: true,
+        });
+      }
+    } else if (interaction.customId.startsWith("pay_with_discord_wallet_")) {
+      // Handle payment with Discord wallet
+      const paymentData = interaction.customId.replace(
+        "pay_with_discord_wallet_",
+        ""
+      );
+      const [channelId, roleId, duration] = paymentData.split("_");
+
+      if (!channelId || !roleId || !duration) {
+        await interaction.reply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("❌ Error")
+              .setDescription("Invalid payment data.")
               .setColor(0xed4245),
           ],
           ephemeral: true,
@@ -619,62 +1043,44 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      // Defer the reply before making payment request (this gives us 15 minutes instead of 3 seconds)
-      await interaction.deferReply({ ephemeral: true });
-
-      const signer = await createSigner(
-        "base-sepolia",
-        baseNetworkUser?.privateKey ?? ""
+      await handleDiscordWalletPayment(
+        interaction,
+        channelId,
+        roleId,
+        parseInt(duration),
+        userId,
+        username,
+        userInfo,
+        serverConfig
       );
-      try {
-        const api = withPaymentInterceptor(
-          axios.create({
-            baseURL: BACKEND_URL,
-          }),
-          signer
-        );
-        const response = await api.get(
-          `/api/access/network/${baseNetworkUser?.networkId}/server/${serverConfig.serverId}/channel/${channelId}/user/${userId}`,
-          {
-            headers: {
-              AUTHORIZATION: `Bearer ${process.env.BACKEND_API_KEY}`,
-            },
-          }
-        );
-        if (!response.data.success) {
-          await interaction.editReply({
-            embeds: [
-              new EmbedBuilder()
-                .setTitle("❌ Error")
-                .setDescription("Failed to get access to the role.")
-                .setColor(0xed4245),
-            ],
-          });
-          return;
-        }
-        await interaction.editReply({
-          content: `Congratulations! You have successfully obtained the **${roleName}** role!`,
-        });
-        console.log(
-          `🎭 ${username} (${userId}) confirmed ${roleName} role (${roleId}) in channel ${channelId}`
-        );
-        return;
-      } catch (error) {
-        console.error(
-          error instanceof AxiosError
-            ? (error as AxiosError).response?.data
-            : "Unknown error"
-        );
-        await interaction.editReply({
+    } else if (interaction.customId.startsWith("pay_with_invoice_")) {
+      // Handle payment with invoice
+      const paymentData = interaction.customId.replace("pay_with_invoice_", "");
+      const [channelId, roleId, duration] = paymentData.split("_");
+
+      if (!channelId || !roleId || !duration) {
+        await interaction.reply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
-              .setDescription("Failed to get access to the role.")
+              .setDescription("Invalid payment data.")
               .setColor(0xed4245),
           ],
+          ephemeral: true,
         });
+        return;
       }
-      return;
+
+      await interaction.deferReply({ ephemeral: true });
+
+      await handleInvoicePayment(
+        interaction,
+        channelId,
+        roleId,
+        parseInt(duration),
+        userId,
+        serverConfig
+      );
     }
   }
 
@@ -708,7 +1114,111 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    if (interaction.customId.startsWith("role_select_")) {
+    if (interaction.customId.startsWith("duration_select_")) {
+      // Handle duration selection
+      const selectedValue = interaction.values[0];
+
+      if (!selectedValue || !selectedValue.startsWith("duration_")) {
+        await interaction.reply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("❌ Error")
+              .setDescription("Invalid duration selection.")
+              .setColor(0xed4245),
+          ],
+          ephemeral: true,
+        });
+        return;
+      }
+
+      // Parse: "duration_channelId_roleId_time"
+      const parts = selectedValue.split("_");
+      if (parts.length !== 4) {
+        await interaction.reply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("❌ Error")
+              .setDescription("Invalid duration format.")
+              .setColor(0xed4245),
+          ],
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const [, channelId, roleId, timeStr] = parts;
+
+      if (!channelId || !roleId || !timeStr) {
+        await interaction.reply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("❌ Error")
+              .setDescription("Missing duration parameters.")
+              .setColor(0xed4245),
+          ],
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const selectedDuration = parseInt(timeStr);
+
+      // Fetch channel config
+      const channelConfig = await fetchChannelConfig(channelId);
+
+      if (!channelConfig) {
+        await interaction.reply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("❌ Error")
+              .setDescription("Channel configuration not found.")
+              .setColor(0xed4245),
+          ],
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const guildId = interaction.guildId;
+      if (!guildId) {
+        await interaction.reply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("❌ Error")
+              .setDescription("Could not determine server.")
+              .setColor(0xed4245),
+          ],
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const roleName = await getRoleName(guildId, roleId);
+      if (!roleName) {
+        await interaction.reply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("❌ Error")
+              .setDescription("Role not found.")
+              .setColor(0xed4245),
+          ],
+          ephemeral: true,
+        });
+        return;
+      }
+
+      // Show payment options
+      await handleDurationSelected(
+        interaction,
+        channelId,
+        roleId,
+        roleName,
+        channelConfig,
+        selectedDuration,
+        userId,
+        username
+      );
+    } else if (interaction.customId.startsWith("role_select_")) {
       // Defer the update IMMEDIATELY to avoid the 3-second timeout
       await interaction.deferUpdate();
 
@@ -823,15 +1333,32 @@ client.on("interactionCreate", async (interaction) => {
         if (!rName) continue;
 
         const costInUsdc = Number(channel.costInUsdc);
-        const durationInDays = Math.floor(
-          channel.roleApplicableTime / (24 * 60 * 60)
-        );
+
+        // Handle roleApplicableTime as array or single number
+        let durationDisplay = "";
+        const timeOptions = channel.roleApplicableTime;
+
+        if (Array.isArray(timeOptions)) {
+          if (timeOptions.length === 1) {
+            const durationInDays = Math.floor(timeOptions[0] / (24 * 60 * 60));
+            durationDisplay = `${durationInDays} days`;
+          } else {
+            // Multiple duration options
+            const durations = timeOptions.map((time) =>
+              Math.floor(time / (24 * 60 * 60))
+            );
+            durationDisplay = `${Math.min(...durations)}-${Math.max(
+              ...durations
+            )} days`;
+          }
+        } else {
+          const durationInDays = Math.floor(timeOptions / (24 * 60 * 60));
+          durationDisplay = `${durationInDays} days`;
+        }
 
         roleOptions.push({
           label: rName,
-          description: `${
-            costInUsdc / 1000000
-          } USDC for ${durationInDays} days`,
+          description: `${costInUsdc / 1000000} USDC for ${durationDisplay}`,
           value: `${channel.channelId}_${channel.roleId}`,
           emoji: "🎭",
         });

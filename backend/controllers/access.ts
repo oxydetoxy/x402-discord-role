@@ -15,8 +15,9 @@ import {
 import { useFacilitator } from "x402/verify";
 import { botClient } from "../constants/constants";
 import { prisma } from "../prisma/prisma";
-import { getBalance } from "../utils/user";
+import { createNetworkUser, getBalance } from "../utils/user";
 import type { Accepts } from "../types";
+import { v4 as uuidv4 } from "uuid";
 
 const facilitatorUrl = process.env.FACILITATOR_URL as Resource;
 const { verify, settle } = useFacilitator({ url: facilitatorUrl });
@@ -160,11 +161,19 @@ async function verifyPayment(
 
 export const getAccess = async (req: Request, res: Response) => {
   try {
-    const { discordId, networkId, serverId, channelId } = req.params;
-    if (!discordId || !networkId || !serverId || !channelId) {
+    const { discordId, networkId, serverId, channelId, roleApplicableTime } =
+      req.body;
+    if (
+      !discordId ||
+      !networkId ||
+      !serverId ||
+      !channelId ||
+      !roleApplicableTime
+    ) {
       return res.status(400).json({
         success: false,
-        error: "Discord ID, network ID, server ID and channel ID are required",
+        error:
+          "Discord ID, network ID, server ID, channel ID and role applicable time are required",
       });
     }
 
@@ -216,6 +225,15 @@ export const getAccess = async (req: Request, res: Response) => {
       return res
         .status(404)
         .json({ success: false, error: "Insufficient Balance" });
+    }
+
+    if (
+      server.channels[0]?.roleApplicableTime &&
+      !server.channels[0]?.roleApplicableTime?.includes(roleApplicableTime)
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Role applicable time is not valid" });
     }
 
     const balance = await getBalance(
@@ -305,9 +323,7 @@ export const getAccess = async (req: Request, res: Response) => {
             userId,
             serverId,
             roleId: roleId!,
-            expiryTime: new Date(
-              Date.now() + server.channels[0]?.roleApplicableTime! * 1000
-            ),
+            expiryTime: new Date(Date.now() + roleApplicableTime * 1000),
           },
         });
 
@@ -322,6 +338,138 @@ export const getAccess = async (req: Request, res: Response) => {
         });
       }
     }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+    return;
+  }
+};
+
+export const createInvoice = async (req: Request, res: Response) => {
+  try {
+    const { discordId, serverId, channelId, roleApplicableTime } = req.body;
+    if (!discordId || !serverId || !channelId || !roleApplicableTime) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Discord ID, network ID, server ID, channel ID and role applicable time are required",
+      });
+    }
+
+    const token = process.env.DISCORD_TOKEN;
+    if (!token) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Discord token is required" });
+    }
+
+    if (!botClient.isReady()) {
+      await botClient.login(token);
+    }
+
+    const server = await prisma.server.findUnique({
+      where: { serverId },
+      include: {
+        channels: {
+          where: {
+            channelId,
+          },
+        },
+      },
+    });
+    if (!server || server.channels.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Server not found" });
+    }
+
+    const network = await prisma.network.findFirst({
+      where: { name: "base-sepolia" },
+    });
+    if (!network) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Network not found" });
+    }
+
+    let user = await prisma.user.findUnique({
+      where: { discordId },
+      include: {
+        networkUsers: {
+          where: { networkId: network.id },
+        },
+      },
+    });
+    if (!user) {
+      const newUser = await prisma.user.create({
+        data: {
+          discordId,
+        },
+      });
+
+      await createNetworkUser(network.id, newUser.id, network);
+      user = await prisma.user.findUnique({
+        where: { discordId },
+        include: {
+          networkUsers: {
+            where: { networkId: network.id },
+          },
+        },
+      });
+    } else if (user.networkUsers.length === 0) {
+      await createNetworkUser(network.id, user.id, network);
+
+      user = await prisma.user.findUnique({
+        where: { discordId },
+        include: {
+          networkUsers: {
+            where: { networkId: network.id },
+          },
+        },
+      });
+    }
+
+    if (
+      server.channels[0]?.roleApplicableTime &&
+      !server.channels[0]?.roleApplicableTime?.includes(roleApplicableTime)
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Role applicable time is not valid" });
+    }
+
+    const userId = user!.id;
+    const roleId = server.channels[0]?.roleId;
+
+    const member = await botClient.guilds.cache
+      .get(serverId)
+      ?.members.fetch(discordId);
+
+    if (!member) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Member not found" });
+    }
+
+    const role = await botClient.guilds.cache
+      .get(serverId)
+      ?.roles.fetch(roleId!);
+    if (!role) {
+      return res.status(400).json({ success: false, error: "Role not found" });
+    }
+
+    const invoice = await prisma.invoice.create({
+      data: {
+        userId,
+        serverId,
+        roleId: roleId!,
+        roleApplicableTime,
+        token: uuidv4(),
+      },
+    });
+
+    res.status(200).json({ success: true, token: invoice.token });
+    return;
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, error: "Internal server error" });

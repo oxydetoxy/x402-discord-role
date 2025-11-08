@@ -1,11 +1,9 @@
 import { Router } from "express";
-import { getAccess } from "../controllers/access";
+import { createInvoice, getAccess } from "../controllers/access";
 
 const app = Router();
 
-app.get(
-  "/access/network/:networkId/server/:serverId/channel/:channelId/user/:discordId",
-  getAccess
-);
+app.post("/access", getAccess);
+app.post("/invoice", createInvoice);
 
 export default app;

@@ -64,7 +64,7 @@ model Channel {
   serverId           String
   costInUsdc         BigInt
   roleId             String
-  roleApplicableTime Int
+  roleApplicableTime Int[]
   server             Server @relation(fields: [serverId], references: [id])
 }
 
@@ -77,4 +77,13 @@ model RoleAssigned {
   createdAt  DateTime @default(now())
 
   @@index([expiryTime])
+}
+
+model Invoice {
+  id                 String @id @default(uuid())
+  userId             String
+  serverId           String
+  roleId             String
+  roleApplicableTime Int
+  token              String @unique
 }

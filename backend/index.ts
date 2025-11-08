@@ -14,7 +14,7 @@ app.use(authenticate);
 // Routes
 app.use("/api", userRoutes);
 app.use("/api", serverRoutes);
-app.use("/api", accessRoutes);
+app.use("/api/user", accessRoutes);
 
 // Health check
 app.get("/health", (req, res) => {
