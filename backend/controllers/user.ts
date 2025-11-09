@@ -12,11 +12,12 @@ export const getUserInfo = async (req: Request, res: Response) => {
       });
     }
 
-    const networks = await prisma.network.findMany();
-
-    let user = await prisma.user.findUnique({
-      where: { discordId },
-    });
+    let [networks, user] = await Promise.all([
+      prisma.network.findMany(),
+      prisma.user.findUnique({
+        where: { discordId },
+      }),
+    ]);
 
     if (!user) {
       user = await prisma.user.create({

@@ -14,7 +14,8 @@ import { createSigner } from "x402-fetch";
 
 // Configuration
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN || "YOUR_BOT_TOKEN_HERE";
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3000";
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3001";
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
 // Types for backend responses
 interface ChannelConfig {
@@ -197,7 +198,7 @@ async function handleDurationSelected(
     .setTitle("💳 Select Payment Method")
     .setDescription(
       `You are purchasing **${roleName}** role for **${durationInDays} days**.\n\n` +
-        `💰 **Cost:** ${roleCost / 1000000} USDC\n\n` +
+        `💰 **Cost:** ${(roleCost * durationInDays) / 1000000} USDC\n\n` +
         `Please select your preferred payment method:`
     )
     .setColor(0x5865f2)
@@ -355,7 +356,7 @@ async function handleDiscordWalletPayment(
           .setDescription(
             `Congratulations! You have successfully purchased the **${roleName}** role!\n\n` +
               `**Duration:** ${durationInDays} days\n` +
-              `**Cost:** ${roleCost / 1000000} USDC\n` +
+              `**Cost:** ${(roleCost * durationInDays) / 1000000} USDC\n` +
               `**Payment Method:** Discord Wallet`
           )
           .setColor(0x57f287)
@@ -393,14 +394,13 @@ async function handleInvoicePayment(
   serverConfig: ServerConfig | null
 ) {
   if (!serverConfig) {
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [
         new EmbedBuilder()
           .setTitle("❌ Error")
           .setDescription("Server configuration not found.")
           .setColor(0xed4245),
       ],
-      ephemeral: true,
     });
     return;
   }
@@ -408,14 +408,13 @@ async function handleInvoicePayment(
   // Fetch channel config
   const channelConfig = await fetchChannelConfig(channelId);
   if (!channelConfig) {
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [
         new EmbedBuilder()
           .setTitle("❌ Error")
           .setDescription("Channel configuration not found.")
           .setColor(0xed4245),
       ],
-      ephemeral: true,
     });
     return;
   }
@@ -437,14 +436,13 @@ async function handleInvoicePayment(
     );
 
     if (!response.data.success) {
-      await interaction.reply({
+      await interaction.editReply({
         embeds: [
           new EmbedBuilder()
             .setTitle("❌ Error")
             .setDescription("Failed to create invoice.")
             .setColor(0xed4245),
         ],
-        ephemeral: true,
       });
       return;
     }
@@ -455,22 +453,21 @@ async function handleInvoicePayment(
 
     // Create invoice embed with payment addresses
     const invoiceEmbed = new EmbedBuilder()
-      .setTitle("💰 Payment Invoice for ${roleName} role")
+      .setTitle(`💰 Payment Invoice for ${roleName} role`)
       .setDescription(
         `**Role:** ${roleName}\n` +
           `**Duration:** ${durationInDays} days\n` +
-          `**Please visit the following link to pay:** ${BACKEND_URL}/invoice/${token}`
+          `**Please visit the following link to pay:** ${FRONTEND_URL}/invoice/${token}`
       )
       .setColor(0xfee75c)
       .setTimestamp();
 
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [invoiceEmbed],
-      ephemeral: true,
     });
   } catch (error) {
     console.error(error);
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [
         new EmbedBuilder()
           .setTitle("❌ Error")

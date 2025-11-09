@@ -8,6 +8,7 @@ import { formatUnits } from "viem";
 import { useAccount, useBalance, useWalletClient } from "wagmi";
 import axios, { AxiosError } from "axios";
 import { withPaymentInterceptor } from "x402-axios";
+import { useRouter } from "next/navigation";
 
 const baseURL = process.env.NEXT_PUBLIC_BASE_URL;
 
@@ -30,6 +31,7 @@ function HomeClient({
   const channel = server.channels.find(
     (channel) => channel.roleId === invoice.roleId
   );
+  const router = useRouter();
 
   const { address, isConnected } = useAccount();
   const { data: balance } = useBalance({
@@ -75,6 +77,7 @@ function HomeClient({
         roleApplicableTime: invoice.roleApplicableTime,
       });
       toast.success("Access granted");
+      router.refresh();
     } catch (error) {
       console.error(error);
       toast.error(

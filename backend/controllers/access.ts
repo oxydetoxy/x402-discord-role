@@ -188,39 +188,42 @@ export const getAccess = async (req: Request, res: Response) => {
       await botClient.login(token);
     }
 
-    const server = await prisma.server.findUnique({
-      where: { serverId },
-      include: {
-        channels: {
-          where: {
-            channelId,
+    const [server, network, user] = await Promise.all([
+      prisma.server.findUnique({
+        where: { serverId },
+        include: {
+          channels: {
+            where: {
+              channelId,
+            },
           },
         },
-      },
-    });
+      }),
+      prisma.network.findUnique({
+        where: { id: networkId },
+      }),
+      prisma.user.findUnique({
+        where: { discordId },
+        include: {
+          networkUsers: {
+            where: { networkId },
+          },
+        },
+      }),
+    ]);
+
     if (!server || server.channels.length === 0) {
       return res
         .status(404)
         .json({ success: false, error: "Server not found" });
     }
 
-    const network = await prisma.network.findUnique({
-      where: { id: networkId },
-    });
     if (!network) {
       return res
         .status(404)
         .json({ success: false, error: "Network not found" });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { discordId },
-      include: {
-        networkUsers: {
-          where: { networkId },
-        },
-      },
-    });
     if (!user || user.networkUsers.length === 0) {
       return res
         .status(404)
@@ -236,12 +239,15 @@ export const getAccess = async (req: Request, res: Response) => {
         .json({ success: false, error: "Role applicable time is not valid" });
     }
 
+    const totalCost =
+      (Number(server.channels[0]?.costInUsdc) * roleApplicableTime) / 86400;
+
     const balance = await getBalance(
       network,
       user.networkUsers[0]?.publicKey ?? ""
     );
 
-    if (balance < (server.channels[0]?.costInUsdc ?? 0)) {
+    if (balance < totalCost) {
       return res
         .status(400)
         .json({ success: false, error: "Insufficient Balance" });
@@ -250,9 +256,10 @@ export const getAccess = async (req: Request, res: Response) => {
     const userId = user.discordId;
     const roleId = server.channels[0]?.roleId;
 
-    const member = await botClient.guilds.cache
-      .get(serverId)
-      ?.members.fetch(userId);
+    const [member, role] = await Promise.all([
+      botClient.guilds.cache.get(serverId)?.members.fetch(userId),
+      botClient.guilds.cache.get(serverId)?.roles.fetch(roleId!),
+    ]);
 
     if (!member) {
       return res
@@ -260,9 +267,6 @@ export const getAccess = async (req: Request, res: Response) => {
         .json({ success: false, error: "Member not found" });
     }
 
-    const role = await botClient.guilds.cache
-      .get(serverId)
-      ?.roles.fetch(roleId!);
     if (!role) {
       return res.status(400).json({ success: false, error: "Role not found" });
     }
@@ -272,7 +276,7 @@ export const getAccess = async (req: Request, res: Response) => {
     } else {
       const resource =
         `${req.protocol}://${req.headers.host}${req.originalUrl}` as Resource;
-      const priceInUsdc = Number(server.channels[0]?.costInUsdc) / 1000000;
+      const priceInUsdc = Number(totalCost) / 1000000;
       console.log(`Price in USDC: ${priceInUsdc}`);
       const paymentRequirements = [
         createExactPaymentRequirements(
@@ -327,6 +331,21 @@ export const getAccess = async (req: Request, res: Response) => {
           },
         });
 
+        const invoice = await prisma.invoice.findUnique({
+          where: {
+            userId_serverId_roleId: {
+              serverId,
+              roleId: roleId!,
+              userId: user.id,
+            },
+          },
+        });
+        if (invoice) {
+          await prisma.invoice.delete({
+            where: { id: invoice.id },
+          });
+        }
+
         res.status(200).json({ success: true });
         return;
       } catch (error) {
@@ -367,25 +386,28 @@ export const createInvoice = async (req: Request, res: Response) => {
       await botClient.login(token);
     }
 
-    const server = await prisma.server.findUnique({
-      where: { serverId },
-      include: {
-        channels: {
-          where: {
-            channelId,
+    const [server, network] = await Promise.all([
+      prisma.server.findUnique({
+        where: { serverId },
+        include: {
+          channels: {
+            where: {
+              channelId,
+            },
           },
         },
-      },
-    });
+      }),
+      prisma.network.findFirst({
+        where: { name: "base-sepolia" },
+      }),
+    ]);
+
     if (!server || server.channels.length === 0) {
       return res
         .status(404)
         .json({ success: false, error: "Server not found" });
     }
 
-    const network = await prisma.network.findFirst({
-      where: { name: "base-sepolia" },
-    });
     if (!network) {
       return res
         .status(404)
@@ -441,9 +463,10 @@ export const createInvoice = async (req: Request, res: Response) => {
     const userId = user!.id;
     const roleId = server.channels[0]?.roleId;
 
-    const member = await botClient.guilds.cache
-      .get(serverId)
-      ?.members.fetch(discordId);
+    const [member, role] = await Promise.all([
+      botClient.guilds.cache.get(serverId)?.members.fetch(discordId),
+      botClient.guilds.cache.get(serverId)?.roles.fetch(roleId!),
+    ]);
 
     if (!member) {
       return res
@@ -451,15 +474,23 @@ export const createInvoice = async (req: Request, res: Response) => {
         .json({ success: false, error: "Member not found" });
     }
 
-    const role = await botClient.guilds.cache
-      .get(serverId)
-      ?.roles.fetch(roleId!);
     if (!role) {
       return res.status(400).json({ success: false, error: "Role not found" });
     }
 
-    const invoice = await prisma.invoice.create({
-      data: {
+    const invoice = await prisma.invoice.upsert({
+      where: {
+        userId_serverId_roleId: {
+          serverId,
+          roleId: roleId!,
+          userId,
+        },
+      },
+      update: {
+        token: uuidv4(),
+        roleApplicableTime,
+      },
+      create: {
         userId,
         serverId,
         roleId: roleId!,
