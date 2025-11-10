@@ -362,11 +362,7 @@ export const getAccess = async (req: Request, res: Response) => {
 
         const invoice = await prisma.invoice.findUnique({
           where: {
-            userId_serverId_roleId: {
-              serverId,
-              roleId: roleId!,
-              userId: user.id,
-            },
+            token,
           },
         });
         if (invoice) {
