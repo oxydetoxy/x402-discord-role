@@ -6,6 +6,7 @@ import {
   Client,
   EmbedBuilder,
   GatewayIntentBits,
+  MessageFlags,
   StringSelectMenuBuilder,
   TextChannel,
 } from "discord.js";
@@ -14,8 +15,9 @@ import { createSigner } from "x402-fetch";
 
 // Configuration
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN || "YOUR_BOT_TOKEN_HERE";
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3001";
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+const BACKEND_URL = process.env.BACKEND_URL || "http://93.127.135.57:3001";
+const FRONTEND_URL =
+  process.env.FRONTEND_URL || "https://x402-discord-role.vercel.app";
 
 // Types for backend responses
 interface ChannelConfig {
@@ -216,11 +218,19 @@ async function handleDurationSelected(
     )
     .setTimestamp();
 
-  await interaction.reply({
-    embeds: [embed],
-    components: [buttonsRow],
-    ephemeral: true,
-  });
+  // Check if interaction has been deferred or replied to
+  if (interaction.deferred || interaction.replied) {
+    await interaction.editReply({
+      embeds: [embed],
+      components: [buttonsRow],
+    });
+  } else {
+    await interaction.reply({
+      embeds: [embed],
+      components: [buttonsRow],
+      flags: MessageFlags.Ephemeral,
+    });
+  }
 
   console.log(
     `⏱️ ${username} (${userId}) selected ${durationInDays} days for ${roleName} role`
@@ -239,14 +249,13 @@ async function handleDiscordWalletPayment(
   serverConfig: ServerConfig | null
 ) {
   if (!userInfo || !serverConfig) {
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [
         new EmbedBuilder()
           .setTitle("❌ Error")
           .setDescription("Failed to retrieve user or server information.")
           .setColor(0xed4245),
       ],
-      ephemeral: true,
     });
     return;
   }
@@ -254,14 +263,13 @@ async function handleDiscordWalletPayment(
   // Fetch channel config
   const channelConfig = await fetchChannelConfig(channelId);
   if (!channelConfig) {
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [
         new EmbedBuilder()
           .setTitle("❌ Error")
           .setDescription("Channel configuration not found.")
           .setColor(0xed4245),
       ],
-      ephemeral: true,
     });
     return;
   }
@@ -272,14 +280,13 @@ async function handleDiscordWalletPayment(
   );
 
   if (!baseNetworkUser) {
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [
         new EmbedBuilder()
           .setTitle("❌ Error")
           .setDescription("No network user found for base-sepolia.")
           .setColor(0xed4245),
       ],
-      ephemeral: true,
     });
     return;
   }
@@ -287,7 +294,7 @@ async function handleDiscordWalletPayment(
   const userBalance = baseNetworkUser?.balance;
 
   if (userBalance && Number(userBalance) < roleCost) {
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [
         new EmbedBuilder()
           .setTitle("❌ Insufficient Balance")
@@ -298,13 +305,9 @@ async function handleDiscordWalletPayment(
           )
           .setColor(0xed4245),
       ],
-      ephemeral: true,
     });
     return;
   }
-
-  // Defer the reply before making payment request
-  await interaction.deferReply({ ephemeral: true });
 
   const signer = await createSigner(
     "base-sepolia",
@@ -743,18 +746,20 @@ client.on("guildCreate", async (guild) => {
 
 // Handle button and dropdown interactions
 client.on("interactionCreate", async (interaction) => {
-  //get server and user config before only
   const userId = interaction.user.id;
   const username = interaction.user.username;
   const guildId = interaction.guildId;
 
-  const userInfo = await fetchUserInfo(userId);
-  const serverConfig = await fetchServerConfig(guildId!);
-
   // Handle button clicks
   if (interaction.isButton()) {
+    // Defer the reply IMMEDIATELY for all buttons to prevent timeout
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    // Now fetch server and user config (can take time)
+    const userInfo = await fetchUserInfo(userId);
+    const serverConfig = await fetchServerConfig(guildId!);
     if (!serverConfig) {
-      await interaction.reply({
+      await interaction.editReply({
         embeds: [
           new EmbedBuilder()
             .setTitle("❌ Server Not Configured")
@@ -763,20 +768,18 @@ client.on("interactionCreate", async (interaction) => {
             )
             .setColor(0xed4245),
         ],
-        ephemeral: true,
       });
       return;
     }
 
     if (!userInfo) {
-      await interaction.reply({
+      await interaction.editReply({
         embeds: [
           new EmbedBuilder()
             .setTitle("❌ User Not Found")
             .setDescription("User not found in backend")
             .setColor(0xed4245),
         ],
-        ephemeral: true,
       });
       return;
     }
@@ -818,9 +821,8 @@ client.on("interactionCreate", async (interaction) => {
         .setTimestamp();
 
       // Reply with ephemeral message (only visible to the user)
-      await interaction.reply({
+      await interaction.editReply({
         embeds: [depositEmbed],
-        ephemeral: true, // This makes the message visible only to the user
       });
 
       console.log(
@@ -863,9 +865,8 @@ client.on("interactionCreate", async (interaction) => {
         .setTimestamp();
 
       // Reply with ephemeral message
-      await interaction.reply({
+      await interaction.editReply({
         embeds: [withdrawEmbed],
-        ephemeral: true, // Only visible to the user
       });
 
       console.log(`💸 ${username} (${userId}) clicked Withdraw button`);
@@ -874,7 +875,7 @@ client.on("interactionCreate", async (interaction) => {
       const roleData = interaction.customId.replace("get_role_", "");
 
       if (roleData === "none") {
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ No Role Selected")
@@ -883,7 +884,6 @@ client.on("interactionCreate", async (interaction) => {
               )
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
         return;
       }
@@ -891,14 +891,13 @@ client.on("interactionCreate", async (interaction) => {
       const [channelId, roleId] = roleData.split("_");
 
       if (!roleId || !channelId) {
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
               .setDescription("Invalid role data. Please select a role again.")
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
         return;
       }
@@ -907,14 +906,13 @@ client.on("interactionCreate", async (interaction) => {
       const channelConfig = await fetchChannelConfig(channelId);
 
       if (!interaction.guildId) {
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
               .setDescription("Could not determine server.")
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
         return;
       }
@@ -922,14 +920,13 @@ client.on("interactionCreate", async (interaction) => {
       const roleName = await getRoleName(interaction.guildId, roleId);
 
       if (!channelConfig || !roleName) {
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
               .setDescription("Could not process role assignment.")
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
         return;
       }
@@ -971,7 +968,7 @@ client.on("interactionCreate", async (interaction) => {
             durationSelect
           );
 
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("⏱️ Select Duration")
@@ -981,7 +978,6 @@ client.on("interactionCreate", async (interaction) => {
               .setColor(0x5865f2),
           ],
           components: [selectRow],
-          ephemeral: true,
         });
       } else if (Array.isArray(timeOptions) && timeOptions.length === 1) {
         // Single time option in array
@@ -998,25 +994,23 @@ client.on("interactionCreate", async (interaction) => {
             username
           );
         } else {
-          await interaction.reply({
+          await interaction.editReply({
             embeds: [
               new EmbedBuilder()
                 .setTitle("❌ Error")
                 .setDescription("Invalid time option.")
                 .setColor(0xed4245),
             ],
-            ephemeral: true,
           });
         }
       } else {
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
               .setDescription("No duration options available for this role.")
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
       }
     } else if (interaction.customId.startsWith("pay_with_discord_wallet_")) {
@@ -1028,14 +1022,13 @@ client.on("interactionCreate", async (interaction) => {
       const [channelId, roleId, duration] = paymentData.split("_");
 
       if (!channelId || !roleId || !duration) {
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
               .setDescription("Invalid payment data.")
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
         return;
       }
@@ -1056,19 +1049,16 @@ client.on("interactionCreate", async (interaction) => {
       const [channelId, roleId, duration] = paymentData.split("_");
 
       if (!channelId || !roleId || !duration) {
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
               .setDescription("Invalid payment data.")
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
         return;
       }
-
-      await interaction.deferReply({ ephemeral: true });
 
       await handleInvoicePayment(
         interaction,
@@ -1083,8 +1073,15 @@ client.on("interactionCreate", async (interaction) => {
 
   // Handle dropdown selection
   if (interaction.isStringSelectMenu()) {
+    // Defer reply IMMEDIATELY for all dropdowns to prevent timeout
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    // Now fetch server and user config (can take time)
+    const userInfo = await fetchUserInfo(userId);
+    const serverConfig = await fetchServerConfig(guildId!);
+
     if (!serverConfig) {
-      await interaction.reply({
+      await interaction.editReply({
         embeds: [
           new EmbedBuilder()
             .setTitle("❌ Server Not Configured")
@@ -1093,20 +1090,18 @@ client.on("interactionCreate", async (interaction) => {
             )
             .setColor(0xed4245),
         ],
-        ephemeral: true,
       });
       return;
     }
 
     if (!userInfo) {
-      await interaction.reply({
+      await interaction.editReply({
         embeds: [
           new EmbedBuilder()
             .setTitle("❌ User Not Found")
             .setDescription("User not found in backend")
             .setColor(0xed4245),
         ],
-        ephemeral: true,
       });
       return;
     }
@@ -1116,14 +1111,13 @@ client.on("interactionCreate", async (interaction) => {
       const selectedValue = interaction.values[0];
 
       if (!selectedValue || !selectedValue.startsWith("duration_")) {
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
               .setDescription("Invalid duration selection.")
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
         return;
       }
@@ -1131,14 +1125,13 @@ client.on("interactionCreate", async (interaction) => {
       // Parse: "duration_channelId_roleId_time"
       const parts = selectedValue.split("_");
       if (parts.length !== 4) {
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
               .setDescription("Invalid duration format.")
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
         return;
       }
@@ -1146,14 +1139,13 @@ client.on("interactionCreate", async (interaction) => {
       const [, channelId, roleId, timeStr] = parts;
 
       if (!channelId || !roleId || !timeStr) {
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
               .setDescription("Missing duration parameters.")
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
         return;
       }
@@ -1164,42 +1156,39 @@ client.on("interactionCreate", async (interaction) => {
       const channelConfig = await fetchChannelConfig(channelId);
 
       if (!channelConfig) {
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
               .setDescription("Channel configuration not found.")
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
         return;
       }
 
       const guildId = interaction.guildId;
       if (!guildId) {
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
               .setDescription("Could not determine server.")
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
         return;
       }
 
       const roleName = await getRoleName(guildId, roleId);
       if (!roleName) {
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
               .setDescription("Role not found.")
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
         return;
       }
@@ -1216,20 +1205,16 @@ client.on("interactionCreate", async (interaction) => {
         username
       );
     } else if (interaction.customId.startsWith("role_select_")) {
-      // Defer the update IMMEDIATELY to avoid the 3-second timeout
-      await interaction.deferUpdate();
-
       const selectedValue = interaction.values[0];
 
       if (!selectedValue) {
-        await interaction.followUp({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
               .setDescription("No role selected.")
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
         return;
       }
@@ -1238,14 +1223,13 @@ client.on("interactionCreate", async (interaction) => {
       const [channelId, selectedRoleId] = selectedValue.split("_");
 
       if (!channelId || !selectedRoleId) {
-        await interaction.followUp({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
               .setDescription("Invalid role selection.")
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
         return;
       }
@@ -1254,14 +1238,13 @@ client.on("interactionCreate", async (interaction) => {
       const channelConfig = await fetchChannelConfig(channelId);
 
       if (!channelConfig) {
-        await interaction.followUp({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
               .setDescription("Channel configuration not found.")
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
         return;
       }
@@ -1269,14 +1252,13 @@ client.on("interactionCreate", async (interaction) => {
       const guildId = interaction.guildId;
 
       if (!guildId) {
-        await interaction.followUp({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
               .setDescription("Could not determine server.")
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
         return;
       }
@@ -1285,95 +1267,65 @@ client.on("interactionCreate", async (interaction) => {
       const roleName = await getRoleName(guildId, selectedRoleId);
 
       if (!roleName) {
-        await interaction.followUp({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("❌ Error")
               .setDescription("Role not found in this server.")
               .setColor(0xed4245),
           ],
-          ephemeral: true,
         });
         return;
       }
 
-      // Rebuild the buttons row with the Get Role button enabled
-      const depositButton = new ButtonBuilder()
-        .setCustomId("deposit")
-        .setLabel("Deposit")
-        .setEmoji("💵")
-        .setStyle(ButtonStyle.Success);
+      // Calculate cost and duration for display
+      const roleCost = Number(channelConfig.costInUsdc);
+      const timeOptions = channelConfig.roleApplicableTime;
 
-      const withdrawButton = new ButtonBuilder()
-        .setCustomId("withdraw")
-        .setLabel("Withdraw")
-        .setEmoji("💸")
-        .setStyle(ButtonStyle.Danger);
+      let durationDisplay = "";
+      if (Array.isArray(timeOptions)) {
+        if (timeOptions.length === 1 && timeOptions[0] !== undefined) {
+          const durationInDays = Math.floor(timeOptions[0] / (24 * 60 * 60));
+          durationDisplay = `${durationInDays} days`;
+        } else if (timeOptions.length > 1) {
+          const durations = timeOptions.map((time) =>
+            Math.floor(time / (24 * 60 * 60))
+          );
+          durationDisplay = `${Math.min(...durations)}-${Math.max(
+            ...durations
+          )} days`;
+        }
+      } else {
+        const durationInDays = Math.floor(timeOptions / (24 * 60 * 60));
+        durationDisplay = `${durationInDays} days`;
+      }
 
+      // Create a "Get Role" button for this specific user's ephemeral message
       const getRoleButton = new ButtonBuilder()
         .setCustomId(`get_role_${channelId}_${selectedRoleId}`)
         .setLabel(`Get ${roleName}`)
         .setEmoji("🎭")
-        .setStyle(ButtonStyle.Primary)
-        .setDisabled(false); // Now enabled with selected role
+        .setStyle(ButtonStyle.Primary);
 
-      const buttonsRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        depositButton,
-        withdrawButton,
+      const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         getRoleButton
       );
 
-      // Rebuild the dropdown with all roles from server config
-      const roleOptions = [];
-      for (const channel of serverConfig!.channels) {
-        const rName = await getRoleName(guildId, channel.roleId);
-        if (!rName) continue;
-
-        const costInUsdc = Number(channel.costInUsdc);
-
-        // Handle roleApplicableTime as array or single number
-        let durationDisplay = "";
-        const timeOptions = channel.roleApplicableTime;
-
-        if (Array.isArray(timeOptions)) {
-          if (timeOptions.length === 1) {
-            const durationInDays = Math.floor(timeOptions[0] / (24 * 60 * 60));
-            durationDisplay = `${durationInDays} days`;
-          } else {
-            // Multiple duration options
-            const durations = timeOptions.map((time) =>
-              Math.floor(time / (24 * 60 * 60))
-            );
-            durationDisplay = `${Math.min(...durations)}-${Math.max(
-              ...durations
-            )} days`;
-          }
-        } else {
-          const durationInDays = Math.floor(timeOptions / (24 * 60 * 60));
-          durationDisplay = `${durationInDays} days`;
-        }
-
-        roleOptions.push({
-          label: rName,
-          description: `${costInUsdc / 1000000} USDC for ${durationDisplay}`,
-          value: `${channel.channelId}_${channel.roleId}`,
-          emoji: "🎭",
-        });
-      }
-
-      const roleSelect = new StringSelectMenuBuilder()
-        .setCustomId(`role_select_${serverConfig!.serverId}`)
-        .setPlaceholder(`🛒 Selected: ${roleName}`)
-        .addOptions(roleOptions);
-
-      const selectRow =
-        new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-          roleSelect
-        );
-
-      // Update the message components to enable the Get Role button
+      // Send an ephemeral message (only visible to the user who selected the role)
       await interaction.editReply({
-        components: [buttonsRow, selectRow],
+        embeds: [
+          new EmbedBuilder()
+            .setTitle("✅ Role Selected")
+            .setDescription(
+              `You have selected the **${roleName}** role!\n\n` +
+                `💰 **Cost:** ${roleCost / 1000000} USDC per day\n` +
+                `⏱️ **Duration:** ${durationDisplay}\n\n` +
+                `Click the button below to proceed with the purchase.`
+            )
+            .setColor(0x57f287)
+            .setTimestamp(),
+        ],
+        components: [buttonRow],
       });
 
       console.log(
