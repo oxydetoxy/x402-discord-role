@@ -161,8 +161,14 @@ async function verifyPayment(
 
 export const getAccess = async (req: Request, res: Response) => {
   try {
-    const { discordId, networkId, serverId, channelId, roleApplicableTime } =
-      req.body;
+    const {
+      discordId,
+      networkId,
+      serverId,
+      channelId,
+      roleApplicableTime,
+      token,
+    } = req.body;
     if (
       !discordId ||
       !networkId ||
@@ -177,15 +183,15 @@ export const getAccess = async (req: Request, res: Response) => {
       });
     }
 
-    const token = process.env.DISCORD_TOKEN;
-    if (!token) {
+    const botToken = process.env.DISCORD_TOKEN;
+    if (!botToken) {
       return res
         .status(400)
         .json({ success: false, error: "Discord token is required" });
     }
 
     if (!botClient.isReady()) {
-      await botClient.login(token);
+      await botClient.login(botToken);
     }
 
     const [server, network, user] = await Promise.all([
@@ -242,17 +248,40 @@ export const getAccess = async (req: Request, res: Response) => {
     const totalCost =
       (Number(server.channels[0]?.costInUsdc) * roleApplicableTime) / 86400;
 
-    const balance = await getBalance(
-      network,
-      user.networkUsers[0]?.publicKey ?? ""
-    );
+    if (token) {
+      const invoice = await prisma.invoice.findUnique({
+        where: {
+          token,
+        },
+      });
+      if (!invoice) {
+        return res
+          .status(400)
+          .json({ success: false, error: "Invoice not found" });
+      }
+      if (
+        invoice.roleApplicableTime !== roleApplicableTime ||
+        invoice.roleId !== server.channels[0]?.roleId ||
+        invoice.userId !== user.id ||
+        invoice.serverId !== server.serverId
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Invoice is not valid",
+        });
+      }
+    } else {
+      const balance = await getBalance(
+        network,
+        user.networkUsers[0]?.publicKey ?? ""
+      );
 
-    if (balance < totalCost) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Insufficient Balance" });
+      if (balance < totalCost) {
+        return res
+          .status(400)
+          .json({ success: false, error: "Insufficient Balance" });
+      }
     }
-
     const userId = user.discordId;
     const roleId = server.channels[0]?.roleId;
 

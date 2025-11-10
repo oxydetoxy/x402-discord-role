@@ -75,6 +75,7 @@ function HomeClient({
         serverId: server.serverId,
         channelId: channel?.channelId,
         roleApplicableTime: invoice.roleApplicableTime,
+        token: invoice.token,
       });
       toast.success("Access granted");
       router.refresh();
