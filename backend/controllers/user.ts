@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
-import { prisma } from "../prisma/prisma";
-import { createNetworkUser, getBalance } from "../utils/user";
+import { prisma } from "../prisma/prisma.js";
+import { createNetworkUser, getBalance } from "../utils/user.js";
 
 export const getUserInfo = async (req: Request, res: Response) => {
   try {

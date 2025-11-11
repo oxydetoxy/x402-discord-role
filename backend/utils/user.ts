@@ -1,6 +1,6 @@
 import type { Network } from "@prisma/client";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
-import { prisma } from "../prisma/prisma";
+import { prisma } from "../prisma/prisma.js";
 import { ethers } from "ethers";
 import { getAssociatedTokenAddress } from "@solana/spl-token";
 

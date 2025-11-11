@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { createInvoice, getAccess } from "../controllers/access";
-import { authenticate } from "../middleware";
+import { createInvoice, getAccess } from "../controllers/access.js";
+import { authenticate } from "../middleware.js";
 
 const app = Router();
 

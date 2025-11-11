@@ -1,8 +1,8 @@
 import express from "express";
-import { authenticate } from "../middleware";
-import accessRoutes from "../routes/access";
-import serverRoutes from "../routes/server";
-import userRoutes from "../routes/user";
+import { authenticate } from "../middleware.js";
+import accessRoutes from "../routes/access.js";
+import serverRoutes from "../routes/server.js";
+import userRoutes from "../routes/user.js";
 import cors from "cors";
 
 const app = express();

@@ -3,7 +3,7 @@ import {
   getAllServers,
   getChannelById,
   getServerById,
-} from "../controllers/server";
+} from "../controllers/server.js";
 
 const router = Router();
 

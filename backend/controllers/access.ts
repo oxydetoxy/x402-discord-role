@@ -13,10 +13,10 @@ import {
   settleResponseHeader,
 } from "x402/types";
 import { useFacilitator } from "x402/verify";
-import { botClient } from "../constants/constants";
-import { prisma } from "../prisma/prisma";
-import { createNetworkUser, getBalance } from "../utils/user";
-import type { Accepts } from "../types";
+import { botClient } from "../constants/constants.js";
+import { prisma } from "../prisma/prisma.js";
+import { createNetworkUser, getBalance } from "../utils/user.js";
+import type { Accepts } from "../types.js";
 import { v4 as uuidv4 } from "uuid";
 
 const facilitatorUrl = process.env.FACILITATOR_URL as Resource;
