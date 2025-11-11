@@ -252,6 +252,7 @@ export const getAccess = async (req: Request, res: Response) => {
       const invoice = await prisma.invoice.findUnique({
         where: {
           token,
+          expiresAt: { gt: new Date() },
         },
       });
       if (!invoice) {
@@ -360,15 +361,18 @@ export const getAccess = async (req: Request, res: Response) => {
           },
         });
 
-        const invoice = await prisma.invoice.findUnique({
-          where: {
-            token,
-          },
-        });
-        if (invoice) {
-          await prisma.invoice.delete({
-            where: { id: invoice.id },
+        if (token) {
+          const invoice = await prisma.invoice.findUnique({
+            where: {
+              token,
+              expiresAt: { gt: new Date() },
+            },
           });
+          if (invoice) {
+            await prisma.invoice.delete({
+              where: { id: invoice.id },
+            });
+          }
         }
 
         res.status(200).json({ success: true });
@@ -514,6 +518,7 @@ export const createInvoice = async (req: Request, res: Response) => {
       update: {
         token: uuidv4(),
         roleApplicableTime,
+        expiresAt: new Date(Date.now() + 60 * 1000),
       },
       create: {
         userId,
@@ -521,6 +526,7 @@ export const createInvoice = async (req: Request, res: Response) => {
         roleId: roleId!,
         roleApplicableTime,
         token: uuidv4(),
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
       },
     });
 
