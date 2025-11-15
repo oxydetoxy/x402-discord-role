@@ -1,12 +1,18 @@
 "use client";
 
-import { Shield, Server, Zap, ArrowRight, Users, TrendingUp, Activity } from "lucide-react";
+import { Shield, Server, Zap, ArrowRight, Users, TrendingUp, Activity, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useState, useEffect } from "react";
+import { FaDiscord } from "react-icons/fa6";
+import { FaTelegram } from "react-icons/fa6";
+import { cn } from "@/lib/utils";
+
+type Platform = "discord" | "telegram";
 
 export default function Home() {
+  const [platform, setPlatform] = useState<Platform>("discord");
   const [loading, setLoading] = useState(false); // Set to false to show initial state
   const [stats, setStats] = useState({
     totalUsers: 0,
@@ -78,15 +84,47 @@ export default function Home() {
       <div className="relative overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-16 sm:pt-24 sm:pb-20">
           <div className="text-center">
+            {/* Platform Selector */}
+            <div className="flex items-center justify-center mb-8">
+              <div className="inline-flex items-center gap-2 p-1 bg-muted/20 rounded-lg border border-border">
+                <button
+                  onClick={() => setPlatform("discord")}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all",
+                    platform === "discord"
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <FaDiscord className="h-4 w-4" />
+                  <span className="hidden sm:inline">Discord</span>
+                </button>
+                <button
+                  onClick={() => setPlatform("telegram")}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all",
+                    platform === "telegram"
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <FaTelegram className="h-4 w-4" />
+                  <span className="hidden sm:inline">Telegram</span>
+                </button>
+              </div>
+            </div>
+
             <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight mb-6">
-              Discord Role
+              {platform === "discord" ? "Discord Role" : "Telegram Channel"}
               <span className="block text-primary">Management</span>
             </h1>
             <p className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-8">
-              Purchase and manage Discord roles with Web3. Secure, transparent, and decentralized role management for your community.
+              {platform === "discord"
+                ? "Purchase and manage Discord roles with Web3. Secure, transparent, and decentralized role management for your community."
+                : "Purchase and manage Telegram channel access with Web3. Secure, transparent, and decentralized channel management for your community."}
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link href="/dashboard">
+              <Link href={platform === "discord" ? "/dashboard" : "/dashboard/telegram"}>
                 <Button size="lg" variant="outline" className="w-full sm:w-auto">
                   Dashboard
                   <ArrowRight className="ml-2 h-4 w-4" />
@@ -128,7 +166,9 @@ export default function Home() {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
-                    <p className="text-sm text-muted-foreground mb-1">Active Roles</p>
+                    <p className="text-sm text-muted-foreground mb-1">
+                      {platform === "discord" ? "Active Roles" : "Active Channels"}
+                    </p>
                     {loading ? (
                       <div className="h-9 w-24 bg-muted rounded animate-pulse mb-2" />
                     ) : (
@@ -172,7 +212,9 @@ export default function Home() {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
-                    <p className="text-sm text-muted-foreground mb-1">Servers</p>
+                    <p className="text-sm text-muted-foreground mb-1">
+                      {platform === "discord" ? "Servers" : "Channels"}
+                    </p>
                     {loading ? (
                       <div className="h-9 w-24 bg-muted rounded animate-pulse mb-2" />
                     ) : (
@@ -185,7 +227,11 @@ export default function Home() {
                       </p>
                     )}
                   </div>
-                  <Server className="h-10 w-10 text-primary opacity-50 flex-shrink-0" />
+                  {platform === "discord" ? (
+                    <Server className="h-10 w-10 text-primary opacity-50 flex-shrink-0" />
+                  ) : (
+                    <MessageSquare className="h-10 w-10 text-primary opacity-50 flex-shrink-0" />
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -196,7 +242,9 @@ export default function Home() {
             {/* Bar Chart - Role Purchases */}
             <Card className="border">
               <CardContent className="p-6">
-                <h3 className="text-xl font-bold mb-6">Role Purchases (Last 7 Days)</h3>
+                <h3 className="text-xl font-bold mb-6">
+                  {platform === "discord" ? "Role Purchases" : "Channel Access Purchases"} (Last 7 Days)
+                </h3>
                 {loading ? (
                   <div className="space-y-4">
                     {[1, 2, 3, 4, 5, 6, 7].map((i) => (
@@ -238,7 +286,9 @@ export default function Home() {
             {/* Role Purchases Graph */}
             <Card className="border">
               <CardContent className="p-6">
-                <h3 className="text-xl font-bold mb-6">Role Purchases (Last 30 Days)</h3>
+                <h3 className="text-xl font-bold mb-6">
+                  {platform === "discord" ? "Role Purchases" : "Channel Access Purchases"} (Last 30 Days)
+                </h3>
                 {loading ? (
                   <div className="relative h-80 mb-4 bg-muted/20 rounded-lg p-4">
                     <div className="absolute inset-0 flex items-center justify-center">

@@ -4,97 +4,97 @@ import { useAccount } from "wagmi";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Shield, Server, Clock, User, Users, ChevronDown } from "lucide-react";
+import { Shield, MessageSquare, Clock, User, Users, ChevronDown } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 
-interface UserRoleClaim {
+interface UserChannelClaim {
   id: string;
   userId: string;
-  discordId: string;
+  telegramId: string;
   username: string;
-  roleId: string;
-  roleName: string;
-  serverId: string;
-  serverName: string;
+  channelId: string;
+  channelName: string;
+  channelAccessId: string;
+  channelAccessName: string;
   expiryTime: Date;
   createdAt: Date;
   isExpired: boolean;
 }
 
-interface ServerData {
+interface ChannelData {
   id: string;
-  serverId: string;
+  channelId: string;
   name: string;
 }
 
-export default function AdminDashboard() {
+export default function TelegramAdminDashboard() {
   const { isConnected, address } = useAccount();
-  const [userClaims, setUserClaims] = useState<UserRoleClaim[]>([]);
+  const [userClaims, setUserClaims] = useState<UserChannelClaim[]>([]);
   const [loading, setLoading] = useState(false);
-  const [servers, setServers] = useState<ServerData[]>([]);
-  const [selectedServer, setSelectedServer] = useState<ServerData | null>(null);
-  const [serversLoading, setServersLoading] = useState(false);
+  const [channels, setChannels] = useState<ChannelData[]>([]);
+  const [selectedChannel, setSelectedChannel] = useState<ChannelData | null>(null);
+  const [channelsLoading, setChannelsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Fetch user servers - replace with actual API call
+  // Fetch user channels - replace with actual API call
   useEffect(() => {
     if (isConnected && address) {
-      setServersLoading(true);
+      setChannelsLoading(true);
       // TODO: Replace with actual API endpoint
-      // Example: fetch(`/api/user/servers?address=${address}`)
+      // Example: fetch(`/api/user/channels?address=${address}`)
       // For now, using mock data
       setTimeout(() => {
-        // Test wallet address that should show "no servers" state
-        const testWalletNoServers = "0x20Ba61d7234F3Bb642b77746a4283DB6F37a5Fc4";
+        // Test wallet address that should show "no channels" state
+        const testWalletNoChannels = "0x20Ba61d7234F3Bb642b77746a4283DB6F37a5Fc4";
         
-        let mockServers: ServerData[] = [];
+        let mockChannels: ChannelData[] = [];
         
-        // If wallet matches test address, return empty array (no servers)
-        if (address.toLowerCase() === testWalletNoServers.toLowerCase()) {
-          mockServers = [];
+        // If wallet matches test address, return empty array (no channels)
+        if (address.toLowerCase() === testWalletNoChannels.toLowerCase()) {
+          mockChannels = [];
         } else {
-          // Otherwise, return mock servers for testing
-          mockServers = [
-            { id: "1", serverId: "111111111111111111", name: "My Discord Server" },
-            { id: "2", serverId: "222222222222222222", name: "Another Server" },
-            { id: "3", serverId: "333333333333333333", name: "Third Server" },
+          // Otherwise, return mock channels for testing
+          mockChannels = [
+            { id: "1", channelId: "111111111111111111", name: "My Telegram Channel" },
+            { id: "2", channelId: "222222222222222222", name: "Another Channel" },
+            { id: "3", channelId: "333333333333333333", name: "Third Channel" },
           ];
         }
         
-        setServers(mockServers);
-        if (mockServers.length > 0) {
-          setSelectedServer(mockServers[0]);
+        setChannels(mockChannels);
+        if (mockChannels.length > 0) {
+          setSelectedChannel(mockChannels[0]);
         } else {
-          setSelectedServer(null);
+          setSelectedChannel(null);
         }
-        setServersLoading(false);
+        setChannelsLoading(false);
       }, 500);
     } else {
-      setServers([]);
-      setSelectedServer(null);
+      setChannels([]);
+      setSelectedChannel(null);
     }
   }, [isConnected, address]);
 
-  // Fetch all user role claims - replace with actual API call
+  // Fetch all user channel claims - replace with actual API call
   useEffect(() => {
     if (isConnected) {
       setLoading(true);
       // TODO: Replace with actual API endpoint
-      // Example: fetch(`/api/admin/user-claims`)
+      // Example: fetch(`/api/admin/channel-claims`)
       // For now, using mock data structure
       setTimeout(() => {
         setUserClaims([
           {
             id: "1",
             userId: "user-1",
-            discordId: "123456789012345678",
+            telegramId: "123456789",
             username: "john_doe",
-            roleId: "987654321",
-            roleName: "Premium Member",
-            serverId: "111111111111111111",
-            serverName: "My Discord Server",
+            channelId: "111111111111111111",
+            channelName: "My Telegram Channel",
+            channelAccessId: "987654321",
+            channelAccessName: "Premium Access",
             expiryTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
             createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
             isExpired: false,
@@ -102,12 +102,12 @@ export default function AdminDashboard() {
           {
             id: "2",
             userId: "user-2",
-            discordId: "987654321098765432",
+            telegramId: "987654321",
             username: "jane_smith",
-            roleId: "123456789",
-            roleName: "VIP Access",
-            serverId: "222222222222222222",
-            serverName: "Another Server",
+            channelId: "222222222222222222",
+            channelName: "Another Channel",
+            channelAccessId: "123456789",
+            channelAccessName: "VIP Access",
             expiryTime: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
             createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
             isExpired: false,
@@ -115,12 +115,12 @@ export default function AdminDashboard() {
           {
             id: "3",
             userId: "user-3",
-            discordId: "555555555555555555",
+            telegramId: "555555555",
             username: "bob_wilson",
-            roleId: "456789123",
-            roleName: "Pro Member",
-            serverId: "111111111111111111",
-            serverName: "My Discord Server",
+            channelId: "111111111111111111",
+            channelName: "My Telegram Channel",
+            channelAccessId: "456789123",
+            channelAccessName: "Pro Access",
             expiryTime: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
             createdAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000),
             isExpired: true,
@@ -173,9 +173,9 @@ export default function AdminDashboard() {
     return "Expiring soon";
   };
 
-  // Filter claims by selected server
-  const filteredClaims = selectedServer
-    ? userClaims.filter((claim) => claim.serverId === selectedServer.serverId)
+  // Filter claims by selected channel
+  const filteredClaims = selectedChannel
+    ? userClaims.filter((claim) => claim.channelId === selectedChannel.channelId)
     : userClaims;
 
   const activeClaims = filteredClaims.filter((claim) => !claim.isExpired).length;
@@ -188,10 +188,10 @@ export default function AdminDashboard() {
         <div className="py-6">
           <div className="text-center">
             <h2 className="text-4xl sm:text-5xl font-bold mb-3">
-              Discord Admin Panel
+              Telegram Admin Panel
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto text-sm sm:text-base">
-              View and manage all claimed Discord roles across your servers. Track expiration dates, user details, and server information.
+              View and manage all claimed Telegram channel access across your channels. Track expiration dates, user details, and channel information.
             </p>
           </div>
         </div>
@@ -214,7 +214,7 @@ export default function AdminDashboard() {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-muted-foreground mb-1">Active Roles</p>
+                    <p className="text-sm text-muted-foreground mb-1">Active Access</p>
                     <p className="text-2xl font-bold text-green-500">{activeClaims}</p>
                   </div>
                   <Shield className="h-8 w-8 text-green-500" />
@@ -225,7 +225,7 @@ export default function AdminDashboard() {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-muted-foreground mb-1">Expired Roles</p>
+                    <p className="text-sm text-muted-foreground mb-1">Expired Access</p>
                     <p className="text-2xl font-bold text-red-500">{expiredClaims}</p>
                   </div>
                   <Clock className="h-8 w-8 text-red-500" />
@@ -244,7 +244,7 @@ export default function AdminDashboard() {
                 Connect Your Wallet
               </h3>
               <p className="text-muted-foreground text-center max-w-md">
-                Connect your wallet to access the admin dashboard and view user role claims.
+                Connect your wallet to access the admin dashboard and view user channel access claims.
               </p>
             </CardContent>
           </Card>
@@ -257,19 +257,19 @@ export default function AdminDashboard() {
               </div>
             </CardContent>
           </Card>
-        ) : !serversLoading && servers.length === 0 ? (
+        ) : !channelsLoading && channels.length === 0 ? (
           <Card className="border">
             <CardContent className="flex flex-col items-center justify-center py-12">
-              <Server className="h-16 w-16 text-muted-foreground mb-6 opacity-50" />
+              <MessageSquare className="h-16 w-16 text-muted-foreground mb-6 opacity-50" />
               <h3 className="text-2xl font-bold mb-3">
-                No Servers Owned
+                No Channels Owned
               </h3>
               <p className="text-muted-foreground text-center max-w-md mb-4">
-                You don&apos;t own any Discord servers with this wallet address. To manage role claims, you need to own at least one Discord server.
+                You don&apos;t own any Telegram channels with this wallet address. To manage channel access claims, you need to own at least one Telegram channel.
               </p>
               <div className="mt-4 p-4 bg-muted/30 rounded-lg border border-border max-w-md">
                 <p className="text-sm text-muted-foreground text-center">
-                  <span className="font-semibold text-foreground">Note:</span> Only server owners can access the admin dashboard to view and manage role claims.
+                  <span className="font-semibold text-foreground">Note:</span> Only channel owners can access the admin dashboard to view and manage channel access claims.
                 </p>
               </div>
             </CardContent>
@@ -279,10 +279,10 @@ export default function AdminDashboard() {
             <CardContent className="flex flex-col items-center justify-center py-12">
               <Users className="h-12 w-12 text-muted-foreground mb-4" />
               <h3 className="text-xl font-semibold mb-2">
-                No Role Claims Found
+                No Channel Access Claims Found
               </h3>
               <p className="text-muted-foreground text-center max-w-md">
-                No users have claimed any roles yet.
+                No users have claimed any channel access yet.
               </p>
             </CardContent>
           </Card>
@@ -290,40 +290,40 @@ export default function AdminDashboard() {
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <h2 className="text-2xl font-semibold tracking-tight">
-                User Role Claims
+                User Channel Access Claims
               </h2>
               <div className="flex items-center gap-4">
-                {servers.length > 1 && (
+                {channels.length > 1 && (
                   <div className="relative" ref={dropdownRef}>
                     <Button
                       variant="outline"
                       className="flex items-center gap-2"
                       onClick={() => setIsOpen(!isOpen)}
                     >
-                      <Server className="h-4 w-4" />
+                      <MessageSquare className="h-4 w-4" />
                       <span className="hidden sm:inline">
-                        {selectedServer?.name || "Select Server"}
+                        {selectedChannel?.name || "Select Channel"}
                       </span>
-                      <span className="sm:hidden">Server</span>
+                      <span className="sm:hidden">Channel</span>
                       <ChevronDown className="h-4 w-4" />
                     </Button>
                     {isOpen && (
                       <div className="absolute top-full right-0 mt-1 w-56 rounded-md border bg-popover shadow-md z-50">
                         <div className="p-1">
-                          {servers.map((server) => (
+                          {channels.map((channel) => (
                             <button
-                              key={server.id}
+                              key={channel.id}
                               onClick={() => {
-                                setSelectedServer(server);
+                                setSelectedChannel(channel);
                                 setIsOpen(false);
                               }}
                               className={cn(
                                 "w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-sm hover:bg-muted transition-colors text-left",
-                                selectedServer?.id === server.id && "bg-muted"
+                                selectedChannel?.id === channel.id && "bg-muted"
                               )}
                             >
-                              <Server className="h-4 w-4" />
-                              {server.name}
+                              <MessageSquare className="h-4 w-4" />
+                              {channel.name}
                             </button>
                           ))}
                         </div>
@@ -331,10 +331,10 @@ export default function AdminDashboard() {
                     )}
                   </div>
                 )}
-                {servers.length === 1 && (
+                {channels.length === 1 && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Server className="h-4 w-4" />
-                    <span className="hidden sm:inline">{servers[0].name}</span>
+                    <MessageSquare className="h-4 w-4" />
+                    <span className="hidden sm:inline">{channels[0].name}</span>
                   </div>
                 )}
                 <Badge variant="secondary">
@@ -353,10 +353,10 @@ export default function AdminDashboard() {
                           User
                         </th>
                         <th className="text-left p-4 text-sm font-semibold text-muted-foreground">
-                          Role
+                          Access Type
                         </th>
                         <th className="text-left p-4 text-sm font-semibold text-muted-foreground">
-                          Server
+                          Channel
                         </th>
                         <th className="text-left p-4 text-sm font-semibold text-muted-foreground">
                           Expires
@@ -379,12 +379,12 @@ export default function AdminDashboard() {
                             <div className="flex flex-col items-center justify-center text-center">
                               <Users className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
                               <h3 className="text-lg font-semibold mb-2">
-                                No Role Claims Found
+                                No Channel Access Claims Found
                               </h3>
                               <p className="text-sm text-muted-foreground max-w-md">
-                                {selectedServer
-                                  ? `No users have claimed roles for "${selectedServer.name}" yet.`
-                                  : "No users have claimed any roles yet."}
+                                {selectedChannel
+                                  ? `No users have claimed channel access for "${selectedChannel.name}" yet.`
+                                  : "No users have claimed any channel access yet."}
                               </p>
                             </div>
                           </td>
@@ -404,7 +404,7 @@ export default function AdminDashboard() {
                                 <div>
                                   <p className="font-medium text-sm">{claim.username}</p>
                                   <p className="text-xs text-muted-foreground font-mono">
-                                    {claim.discordId.slice(0, 10)}...
+                                    {claim.telegramId.slice(0, 10)}...
                                   </p>
                                 </div>
                               </div>
@@ -413,20 +413,20 @@ export default function AdminDashboard() {
                               <div className="flex items-center gap-2">
                                 <Shield className="h-4 w-4 text-muted-foreground" />
                                 <div>
-                                  <p className="text-sm">{claim.roleName}</p>
+                                  <p className="text-sm">{claim.channelAccessName}</p>
                                   <p className="text-xs text-muted-foreground font-mono">
-                                    {claim.roleId.slice(0, 8)}...
+                                    {claim.channelAccessId.slice(0, 8)}...
                                   </p>
                                 </div>
                               </div>
                             </td>
                             <td className="p-4">
                               <div className="flex items-center gap-2">
-                                <Server className="h-4 w-4 text-muted-foreground" />
+                                <MessageSquare className="h-4 w-4 text-muted-foreground" />
                                 <div>
-                                  <p className="text-sm">{claim.serverName}</p>
+                                  <p className="text-sm">{claim.channelName}</p>
                                   <p className="text-xs text-muted-foreground font-mono">
-                                    {claim.serverId.slice(0, 8)}...
+                                    {claim.channelId.slice(0, 8)}...
                                   </p>
                                 </div>
                               </div>
